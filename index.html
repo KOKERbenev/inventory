@@ -953,7 +953,7 @@ function readWithFallback(file, cb){
   const r=new FileReader();
   r.onload=e=>{
     const txt=e.target.result;
-    if(txt.includes('?')){
+    if(txt.includes('�')){
       const r2=new FileReader();
       r2.onload=e2=>cb(e2.target.result);
       r2.readAsText(file,'big5');
