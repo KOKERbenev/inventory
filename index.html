@@ -51,6 +51,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .nav-tab{padding:0 14px;height:52px;display:flex;align-items:center;cursor:pointer;color:var(--text2);font-size:13px;border-bottom:3px solid transparent;transition:.15s;white-space:nowrap;user-select:none;border-radius:var(--r-sm) var(--r-sm) 0 0}
 .nav-tab:hover{color:var(--primary);background:var(--surface2)}
 .nav-tab.active{color:var(--primary);border-bottom-color:var(--primary);font-weight:600}
+.nav-actions{display:flex;align-items:center;gap:8px;margin-left:auto;padding-left:16px;border-left:1px solid var(--border);flex-shrink:0}
 
 /* LAYOUT */
 .main{padding:20px;max-width:1400px;margin:0 auto}
@@ -185,6 +186,11 @@ select{cursor:pointer}
     <div class="nav-tab" data-pg="purchase">進貨管理</div>
     <div class="nav-tab" data-pg="import">發票匯入</div>
     <div class="nav-tab" data-pg="settings">品項設定</div>
+  </div>
+  <div class="nav-actions">
+    <button class="btn btn-outline btn-sm" onclick="backupData()">💾 備份資料</button>
+    <button class="btn btn-outline btn-sm" onclick="document.getElementById('restore-file').click()">📂 還原資料</button>
+    <input type="file" id="restore-file" accept=".json" style="display:none" onchange="restoreData(this.files[0])">
   </div>
 </nav>
 
@@ -528,6 +534,67 @@ function fmtTs(ts) {
 }
 function fmtMoney(n) { return '$'+(Math.round(n)||0).toLocaleString(); }
 function today() { return new Date().toISOString().slice(0,10); }
+
+// ─────────────────────────────────────────────
+// BACKUP & RESTORE
+// ─────────────────────────────────────────────
+function backupData() {
+  const now = new Date();
+  const dateStr = today();
+  const timeStr = now.toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit'});
+  const payload = {
+    version: "1.0",
+    exportTime: dateStr + ' ' + timeStr,
+    data: {
+      products: db.items,
+      purchases: db.purchases,
+      manualInvoices: db.paperInvs,
+      importLogs: db.csvHist,
+      stockLogs: db.txs
+    }
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type: 'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `發票庫存管理系統_備份_${dateStr}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function restoreData(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    let payload;
+    try {
+      payload = JSON.parse(e.target.result);
+    } catch {
+      alert('檔案格式不符，請選擇正確的備份檔案');
+      document.getElementById('restore-file').value = '';
+      return;
+    }
+    if (!payload.version || !payload.data) {
+      alert('檔案格式不符，請選擇正確的備份檔案');
+      document.getElementById('restore-file').value = '';
+      return;
+    }
+    if (!confirm('確定要還原資料嗎？這將覆蓋目前所有資料，此動作無法復原。')) {
+      document.getElementById('restore-file').value = '';
+      return;
+    }
+    const d = payload.data;
+    db.items       = d.products      || [];
+    db.purchases   = d.purchases     || [];
+    db.paperInvs   = d.manualInvoices|| [];
+    db.csvHist     = d.importLogs    || [];
+    db.txs         = d.stockLogs     || [];
+    save();
+    document.getElementById('restore-file').value = '';
+    alert(`資料還原成功！共載入 ${db.items.length} 個品項`);
+    location.reload();
+  };
+  reader.readAsText(file, 'utf-8');
+}
 
 // ─────────────────────────────────────────────
 // NAVIGATION
@@ -886,7 +953,7 @@ function readWithFallback(file, cb){
   const r=new FileReader();
   r.onload=e=>{
     const txt=e.target.result;
-    if(txt.includes('�')){
+    if(txt.includes('?')){
       const r2=new FileReader();
       r2.onload=e2=>cb(e2.target.result);
       r2.readAsText(file,'big5');
