@@ -330,7 +330,7 @@ select{cursor:pointer}
           <option value="">請選擇品項</option>
         </select>
       </div>
-      <div class="fg"><label>數量</label><input type="number" id="pu-qty" min="1" placeholder="0"></div>
+      <div class="fg"><label>數量</label><input type="number" id="pu-qty" min="0.1" step="0.1" placeholder="0"></div>
       <div class="fg"><label>進貨日期</label><input type="date" id="pu-date"></div>
       <div class="fg"><label>供應商</label><input type="text" id="pu-supplier" placeholder="供應商名稱"></div>
       <div class="fg"><label>備註</label><input type="text" id="pu-note" placeholder="備註（選填）"></div>
@@ -402,8 +402,8 @@ select{cursor:pointer}
       <div class="fg"><label>商品代號</label><input type="text" id="si-code" placeholder="P001" class="mono"></div>
       <div class="fg"><label>品名 <span class="txt-danger">*</span></label><input type="text" id="si-name" placeholder="品名"></div>
       <div class="fg"><label>單位</label><input type="text" id="si-unit" placeholder="個"></div>
-      <div class="fg"><label>警示下限</label><input type="number" id="si-thr" min="0" placeholder="10"></div>
-      <div class="fg"><label>初始庫存</label><input type="number" id="si-stock" min="0" placeholder="0"></div>
+      <div class="fg"><label>警示下限</label><input type="number" id="si-thr" min="0" step="0.1" placeholder="10"></div>
+      <div class="fg"><label>初始庫存</label><input type="number" id="si-stock" min="0" step="0.1" placeholder="0"></div>
       <div class="fg"><label>單價</label><input type="number" id="si-price" min="0" step="0.01" placeholder="0"></div>
     </div>
     <button class="btn btn-primary" onclick="addItem()" style="margin-top:4px">新增品項</button>
@@ -470,7 +470,7 @@ select{cursor:pointer}
     <div style="margin-bottom:12px;color:var(--text2);font-size:13px" id="adj-info"></div>
     <div class="fg" style="margin-bottom:12px">
       <label>調整量（正數增加，負數減少）</label>
-      <input type="number" id="adj-delta" placeholder="例：-5 或 10">
+      <input type="number" id="adj-delta" placeholder="例：-5 或 10" step="0.1">
     </div>
     <div class="fg">
       <label>備註</label>
@@ -495,7 +495,7 @@ select{cursor:pointer}
     </div>
     <div class="fg">
       <label>警示下限</label>
-      <input type="number" id="edit-thr" min="0">
+      <input type="number" id="edit-thr" min="0" step="0.1">
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeEdit()">取消</button>
@@ -533,6 +533,7 @@ function fmtTs(ts) {
   return d.toLocaleDateString('zh-TW')+' '+d.toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
 }
 function fmtMoney(n) { return '$'+(Math.round(n)||0).toLocaleString(); }
+function fmtNum(n) { return parseFloat((Math.round(n*100)/100).toFixed(2)).toString(); }
 function today() { return new Date().toISOString().slice(0,10); }
 
 // ─────────────────────────────────────────────
@@ -640,7 +641,7 @@ function renderOverview() {
   document.getElementById('ov-alerts').innerHTML=ah;
 
   const items=all.filter(i=>{
-    if(q && !i.name.toLowerCase().includes(q) && !i.code.toLowerCase().includes(q)) return false;
+    if(q && !i.name.toLowerCase().includes(q) && !(i.code||'').toLowerCase().includes(q)) return false;
     if(f && status(i)!==f) return false;
     return true;
   });
@@ -659,10 +660,10 @@ function renderOverview() {
     return `<tr>
       <td class="mono txt-sm">${item.code||'—'}</td>
       <td>${item.name}</td>
-      <td><strong>${item.stock}</strong></td>
+      <td><strong>${fmtNum(item.stock)}</strong></td>
       <td>${item.unit}</td>
       <td>${item.threshold}</td>
-      <td>${inMap[item.id]||0}</td>
+      <td>${fmtNum(inMap[item.id]||0)}</td>
       <td>
         <div class="prog-wrap">
           <div class="prog"><div class="prog-bar ${pbClass}" style="width:${pct}%"></div></div>
@@ -681,7 +682,7 @@ let adjId=null;
 function openAdj(id){
   const item=byId(id); if(!item) return;
   adjId=id;
-  document.getElementById('adj-info').textContent=`${item.name}　現有庫存：${item.stock} ${item.unit}`;
+  document.getElementById('adj-info').textContent=`${item.name}　現有庫存：${fmtNum(item.stock)} ${item.unit}`;
   document.getElementById('adj-delta').value='';
   document.getElementById('adj-note').value='';
   document.getElementById('adj-overlay').classList.add('open');
@@ -689,10 +690,10 @@ function openAdj(id){
 function closeAdj(){ document.getElementById('adj-overlay').classList.remove('open'); adjId=null; }
 function confirmAdj(){
   const item=byId(adjId); if(!item) return;
-  const delta=parseInt(document.getElementById('adj-delta').value)||0;
+  const delta=parseFloat(document.getElementById('adj-delta').value)||0;
   if(!delta){ alert('請輸入調整量（非 0）'); return; }
   const note=document.getElementById('adj-note').value.trim();
-  const newStock=item.stock+delta;
+  const newStock=Math.round((item.stock+delta)*100)/100;
   if(newStock<0&&!confirm(`調整後庫存將為負值（${newStock} ${item.unit}），確定繼續？`)) return;
   item.stock=newStock;
   db.txs.unshift({id:uid(),ts:Date.now(),itemId:item.id,itemName:item.name,
@@ -728,8 +729,8 @@ function renderTracking(){
   tbody.innerHTML=rows.map(t=>`<tr>
     <td class="txt-sm txt-muted">${fmtTs(t.ts)}</td>
     <td>${t.itemName}</td>
-    <td class="${t.delta>=0?'dpos':'dneg'}">${t.delta>0?'+':''}${t.delta}</td>
-    <td>${t.balance}</td>
+    <td class="${t.delta>=0?'dpos':'dneg'}">${t.delta>0?'+':''}${fmtNum(t.delta)}</td>
+    <td>${fmtNum(t.balance)}</td>
     <td>${t.unit}</td>
     <td><span class="badge ${typeBadge[t.type]||'bd-adj'}">${t.type}</span></td>
     <td class="txt-sm txt-muted">${t.note||'—'}</td>
@@ -738,8 +739,8 @@ function renderTracking(){
   const inSum=rows.filter(t=>t.delta>0).reduce((s,t)=>s+t.delta,0);
   const outSum=rows.filter(t=>t.delta<0).reduce((s,t)=>s+t.delta,0);
   document.getElementById('tr-sub').innerHTML=
-    `<span>進貨總量：<strong class="dpos">+${inSum}</strong></span>
-     <span>出貨總量：<strong class="dneg">${outSum}</strong></span>`;
+    `<span>進貨總量：<strong class="dpos">+${fmtNum(inSum)}</strong></span>
+     <span>出貨總量：<strong class="dneg">${fmtNum(outSum)}</strong></span>`;
 }
 
 // ─────────────────────────────────────────────
@@ -770,7 +771,7 @@ function renderPaperRows(){
         <option value="">請選擇</option>${opts}
       </select>
     </td>
-    <td><input type="number" min="1" value="${r.qty}" onchange="onPpQty(${idx},this.value)" style="width:70px"></td>
+    <td><input type="number" min="0.1" step="0.1" value="${r.qty}" onchange="onPpQty(${idx},this.value)" style="width:80px"></td>
     <td><input type="text" value="${r.unit}" readonly style="width:55px;background:var(--surface2)"></td>
     <td><input type="number" value="${r.price}" step="0.01" onchange="onPpPrice(${idx},this.value)" style="width:90px"></td>
     <td id="pp-sub-${idx}"><strong>${fmtMoney(r.sub)}</strong></td>
@@ -824,7 +825,7 @@ function submitPaper(){
   for(const r of valid) qtySum[r.itemId]=(qtySum[r.itemId]||0)+r.qty;
   for(const [id,total] of Object.entries(qtySum)){
     const item=byId(id);
-    if(item&&item.stock<total){ alert(`${item.name} 庫存不足（現有 ${item.stock}，需要 ${total}）`); return; }
+    if(item&&item.stock<total){ alert(`${item.name} 庫存不足（現有 ${fmtNum(item.stock)}，需要 ${fmtNum(total)}）`); return; }
   }
   const sub=valid.reduce((s,r)=>s+r.sub,0);
   const tax=sub*.05;
@@ -834,7 +835,7 @@ function submitPaper(){
     items:valid.map(r=>({...r})),subtotal:sub,tax,total:sub+tax};
   for(const r of valid){
     const item=byId(r.itemId); if(!item) continue;
-    item.stock-=r.qty;
+    item.stock=Math.round((item.stock-r.qty)*100)/100;
     db.txs.unshift({id:uid(),ts:inv.ts,itemId:item.id,itemName:item.name,
       delta:-r.qty,balance:item.stock,unit:item.unit,type:'出貨(紙本)',note:`發票${no} ${cust}`});
   }
@@ -883,7 +884,7 @@ function fillPurchaseSelect(){
 
 function submitPurchase(){
   const itemId=document.getElementById('pu-item').value;
-  const qty=parseInt(document.getElementById('pu-qty').value)||0;
+  const qty=parseFloat(document.getElementById('pu-qty').value)||0;
   const date=document.getElementById('pu-date').value;
   const supplier=document.getElementById('pu-supplier').value.trim();
   const note=document.getElementById('pu-note').value.trim();
@@ -891,15 +892,14 @@ function submitPurchase(){
   if(qty<=0){ alert('請輸入有效數量'); return; }
   if(!date){ alert('請輸入進貨日期'); return; }
   const item=byId(itemId); if(!item) return;
-  item.stock+=qty;
+  item.stock=Math.round((item.stock+qty)*100)/100;
   const pu={id:uid(),ts:Date.now(),itemId,itemName:item.name,qty,unit:item.unit,supplier,note,date};
   db.purchases.unshift(pu);
   db.txs.unshift({id:uid(),ts:Date.now(),itemId:item.id,itemName:item.name,
     delta:qty,balance:item.stock,unit:item.unit,type:'進貨',note:`供應商:${supplier||'—'}${note?' '+note:''}`});
   save();
-  ['pu-item','pu-qty','pu-date','pu-supplier','pu-note'].forEach(id=>{
-    const el=document.getElementById(id); el.value=id==='pu-date'?today():'';
-  });
+  ['pu-item','pu-qty','pu-supplier','pu-note'].forEach(id=>{ document.getElementById(id).value=''; });
+  document.getElementById('pu-date').value=today();
   renderPurchases();
   alert('進貨完成！');
 }
@@ -910,7 +910,7 @@ function renderPurchases(){
   tbody.innerHTML=db.purchases.map(p=>`<tr>
     <td>${p.date}</td>
     <td>${p.itemName}</td>
-    <td class="dpos">+${p.qty}</td>
+    <td class="dpos">+${fmtNum(p.qty)}</td>
     <td>${p.unit}</td>
     <td>${p.supplier||'—'}</td>
     <td class="txt-sm txt-muted">${p.note||'—'}</td>
@@ -921,11 +921,11 @@ function renderPurchases(){
 function delPurchase(id){
   const p=db.purchases.find(x=>x.id===id); if(!p) return;
   const item=byId(p.itemId);
-  const afterStock=item?item.stock-p.qty:null;
+  const afterStock=item?Math.round((item.stock-p.qty)*100)/100:null;
   const stockWarn=afterStock!==null&&afterStock<0?`\n⚠ 還原後庫存將為 ${afterStock}（負值）`:'' ;
-  if(!confirm(`確定刪除此進貨紀錄？\n將自動還原庫存 ${p.qty} ${p.unit}${stockWarn}`)) return;
+  if(!confirm(`確定刪除此進貨紀錄？\n將自動還原庫存 ${fmtNum(p.qty)} ${p.unit}${stockWarn}`)) return;
   if(item){
-    item.stock-=p.qty;
+    item.stock=Math.round((item.stock-p.qty)*100)/100;
     db.txs.unshift({id:uid(),ts:Date.now(),itemId:item.id,itemName:item.name,
       delta:-p.qty,balance:item.stock,unit:item.unit,type:'手動調整',note:'刪除進貨紀錄'});
   }
@@ -953,7 +953,7 @@ function readWithFallback(file, cb){
   const r=new FileReader();
   r.onload=e=>{
     const txt=e.target.result;
-    if(txt.includes('�')){
+    if(txt.includes('â€') || txt.includes('\uFFFD')){
       const r2=new FileReader();
       r2.onload=e2=>cb(e2.target.result);
       r2.readAsText(file,'big5');
@@ -974,12 +974,11 @@ function parseCsvText(text){
 
   if(!nameKey||!qtyKey){ alert(`無法辨識 CSV 欄位。\n找到欄位：${keys.join('、')}\n需包含「商品品名」與「商品數量」欄位`); return; }
 
-  // aggregate, skip voided
   const agg={};
   for(const r of rows){
     if(voidKey && r[voidKey] && r[voidKey].trim()!=='' && r[voidKey]!=='0') continue;
     const name=(r[nameKey]||'').trim();
-    const qty=parseInt(r[qtyKey])||0;
+    const qty=parseFloat(r[qtyKey])||0;
     if(!name||qty<=0) continue;
     agg[name]=(agg[name]||0)+qty;
   }
@@ -997,11 +996,11 @@ function renderCsvPreview(){
   document.getElementById('csv-preview-wrap').style.display='block';
   document.getElementById('csv-prev-body').innerHTML=csvPending.map(r=>`<tr>
     <td>${r.name}</td>
-    <td>${r.qty}</td>
+    <td>${fmtNum(r.qty)}</td>
     <td>${r.item
       ?`<span style="color:var(--success)">✓ ${r.item.name}</span>`
       :`<span style="color:var(--danger)">✗ 未匹配</span>`}</td>
-    <td>${r.item?r.item.stock-r.qty:'—'}</td>
+    <td>${r.item?fmtNum(r.item.stock-r.qty):'—'}</td>
   </tr>`).join('');
 }
 
@@ -1011,12 +1010,12 @@ function confirmCsv(){
   if(!matched.length){ alert('沒有可匹配的品項'); return; }
   const shortage=matched.filter(r=>r.item.stock<r.qty);
   if(shortage.length){
-    const msg=shortage.map(r=>`・${r.item.name}（現有 ${r.item.stock}，需要 ${r.qty}）`).join('\n');
+    const msg=shortage.map(r=>`・${r.item.name}（現有 ${fmtNum(r.item.stock)}，需要 ${fmtNum(r.qty)}）`).join('\n');
     if(!confirm(`以下品項庫存不足，繼續匯入將產生負庫存：\n${msg}\n\n確定繼續？`)) return;
   }
   const ts=Date.now();
   for(const r of matched){
-    r.item.stock-=r.qty;
+    r.item.stock=Math.round((r.item.stock-r.qty)*100)/100;
     db.txs.unshift({id:uid(),ts,itemId:r.item.id,itemName:r.item.name,
       delta:-r.qty,balance:r.item.stock,unit:r.item.unit,type:'出貨(CSV)',note:`CSV：${csvFile}`});
   }
@@ -1051,8 +1050,8 @@ function addItem(){
   const code=document.getElementById('si-code').value.trim();
   const name=document.getElementById('si-name').value.trim();
   const unit=document.getElementById('si-unit').value.trim();
-  const thr=parseInt(document.getElementById('si-thr').value)||0;
-  const stock=parseInt(document.getElementById('si-stock').value)||0;
+  const thr=parseFloat(document.getElementById('si-thr').value)||0;
+  const stock=parseFloat(document.getElementById('si-stock').value)||0;
   const price=parseFloat(document.getElementById('si-price').value)||0;
   if(!name){ alert('請輸入品名'); return; }
   if(db.items.find(i=>i.name===name)){ alert(`品名「${name}」已存在`); return; }
@@ -1142,7 +1141,7 @@ function renderSettings(){
     <td class="mono txt-sm">${item.code||'—'}</td>
     <td>${item.name}</td>
     <td>${item.unit}</td>
-    <td>${item.stock}</td>
+    <td>${fmtNum(item.stock)}</td>
     <td>${item.threshold}</td>
     <td>${item.price?fmtMoney(item.price):'<span class="txt-danger txt-sm">未設定</span>'}</td>
     <td class="row">
@@ -1152,7 +1151,6 @@ function renderSettings(){
   </tr>`).join('');
 }
 
-// EDIT MODAL
 function openEdit(id){
   const item=byId(id); if(!item) return;
   document.getElementById('edit-id').value=id;
@@ -1166,7 +1164,7 @@ function confirmEdit(){
   const id=document.getElementById('edit-id').value;
   const item=byId(id); if(!item) return;
   item.price=parseFloat(document.getElementById('edit-price').value)||0;
-  item.threshold=parseInt(document.getElementById('edit-thr').value)||0;
+  item.threshold=parseFloat(document.getElementById('edit-thr').value)||0;
   save(); closeEdit(); renderSettings();
 }
 
@@ -1177,9 +1175,6 @@ function delItem(id){
   save(); renderSettings();
 }
 
-// ─────────────────────────────────────────────
-// CLOSE MODALS ON OVERLAY CLICK
-// ─────────────────────────────────────────────
 document.getElementById('adj-overlay').addEventListener('click',function(e){ if(e.target===this) closeAdj(); });
 document.getElementById('edit-overlay').addEventListener('click',function(e){ if(e.target===this) closeEdit(); });
 
