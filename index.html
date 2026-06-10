@@ -167,6 +167,17 @@ select{cursor:pointer}
 .dneg{color:var(--danger);font-weight:700}
 .txt-sm{font-size:12px}.txt-muted{color:var(--text3)}.txt-danger{color:var(--danger)}
 
+/* AUTOCOMPLETE */
+.ac-wrap{position:relative;width:100%}
+.ac-input{width:100%;padding:5px 8px;font-size:13px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface);color:var(--text);font-family:inherit}
+.ac-input:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(59,130,246,.12)}
+.ac-dropdown{display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);box-shadow:var(--shadow-md);z-index:300;max-height:220px;overflow-y:auto}
+.ac-dropdown.open{display:block}
+.ac-item{padding:7px 10px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--border);color:var(--text)}
+.ac-item:last-child{border-bottom:none}
+.ac-item:hover,.ac-item.active{background:var(--surface2);color:var(--primary)}
+.ac-item mark{background:transparent;color:var(--primary);font-weight:700}
+
 /* MODAL */
 .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;align-items:center;justify-content:center}
 .overlay.open{display:flex}
@@ -754,7 +765,7 @@ function toggleTax(){
 }
 
 function addPaperRow(){
-  ppRows.push({rowId:uid(),itemId:'',qty:1,unit:'',price:0,sub:0});
+  ppRows.push({rowId:uid(),itemId:'',itemName:'',qty:1,unit:'',price:0,sub:0});
   renderPaperRows();
 }
 
@@ -764,12 +775,19 @@ function renderPaperRows(){
     tbody.innerHTML='<tr><td colspan="6" class="no-data txt-sm">尚無品項，請點擊「新增品項列」</td></tr>';
     calcPaperTotal(); return;
   }
-  const opts=db.items.map(i=>`<option value="${i.id}">${i.name}</option>`).join('');
-  tbody.innerHTML=ppRows.map((r,idx)=>`<tr>
-    <td>
-      <select onchange="onPpItem(${idx},this.value)">
-        <option value="">請選擇</option>${opts}
-      </select>
+  tbody.innerHTML=ppRows.map((r,idx)=>`<tr id="pp-row-${idx}">
+    <td style="min-width:180px;">
+      <div class="ac-wrap">
+        <input class="ac-input" id="pp-ac-${idx}" type="text"
+          value="${r.itemName||''}"
+          placeholder="輸入品名搜尋…"
+          autocomplete="off"
+          oninput="onPpSearch(${idx},this.value)"
+          onkeydown="onPpKey(event,${idx})"
+          onfocus="onPpSearch(${idx},this.value)"
+          onblur="setTimeout(()=>closePpDrop(${idx}),150)">
+        <div class="ac-dropdown" id="pp-drop-${idx}"></div>
+      </div>
     </td>
     <td><input type="number" min="0.1" step="0.1" value="${r.qty}" onchange="onPpQty(${idx},this.value)" style="width:80px"></td>
     <td><input type="text" value="${r.unit}" readonly style="width:55px;background:var(--surface2)"></td>
@@ -777,20 +795,73 @@ function renderPaperRows(){
     <td id="pp-sub-${idx}"><strong>${fmtMoney(r.sub)}</strong></td>
     <td><button class="btn btn-danger btn-xs" onclick="rmPpRow(${idx})">✕</button></td>
   </tr>`).join('');
-  // restore selected values
-  const selects=tbody.querySelectorAll('select');
-  ppRows.forEach((r,idx)=>{ if(r.itemId) selects[idx].value=r.itemId; });
   calcPaperTotal();
 }
 
-function onPpItem(idx,itemId){
-  const item=byId(itemId);
-  ppRows[idx].itemId=itemId;
-  ppRows[idx].unit=item?item.unit:'';
-  ppRows[idx].price=item?(item.price||0):0;
-  ppRows[idx].sub=ppRows[idx].qty*ppRows[idx].price;
-  renderPaperRows();
+function onPpSearch(idx, q){
+  const drop=document.getElementById('pp-drop-'+idx);
+  const kw=q.trim().toLowerCase();
+  const results=db.items.filter(i=>!kw||i.name.toLowerCase().includes(kw)||
+    (i.code&&i.code.toLowerCase().includes(kw))).slice(0,10);
+  if(!results.length){ drop.innerHTML='<div class="ac-item txt-muted">無符合品項</div>'; drop.classList.add('open'); return; }
+  drop.innerHTML=results.map(i=>{
+    const hl=kw?i.name.replace(new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi'),m=>`<mark>${m}</mark>`):i.name;
+    return `<div class="ac-item" data-id="${i.id}" data-name="${i.name}" onmousedown="selectPpItem(${idx},'${i.id}')">${hl}</div>`;
+  }).join('');
+  drop.classList.add('open');
 }
+
+function selectPpItem(idx, itemId){
+  const item=byId(itemId);
+  if(!item) return;
+  ppRows[idx].itemId=itemId;
+  ppRows[idx].itemName=item.name;
+  ppRows[idx].unit=item.unit;
+  ppRows[idx].price=item.price||0;
+  ppRows[idx].sub=ppRows[idx].qty*(item.price||0);
+  const inp=document.getElementById('pp-ac-'+idx);
+  if(inp) inp.value=item.name;
+  closePpDrop(idx);
+  // update unit, price, subtotal without re-rendering whole table
+  const row=document.getElementById('pp-row-'+idx);
+  if(row){
+    row.cells[2].querySelector('input').value=item.unit;
+    row.cells[3].querySelector('input').value=item.price||0;
+    document.getElementById('pp-sub-'+idx).innerHTML=`<strong>${fmtMoney(ppRows[idx].sub)}</strong>`;
+  }
+  calcPaperTotal();
+}
+
+function closePpDrop(idx){
+  const drop=document.getElementById('pp-drop-'+idx);
+  if(drop) drop.classList.remove('open');
+  // if input doesn't match any item exactly, clear itemId
+  const inp=document.getElementById('pp-ac-'+idx);
+  if(inp){
+    const val=inp.value.trim();
+    const match=db.items.find(i=>i.name===val);
+    if(!match && ppRows[idx]){
+      ppRows[idx].itemId='';
+      ppRows[idx].itemName=val;
+    }
+  }
+}
+
+function onPpKey(e,idx){
+  const drop=document.getElementById('pp-drop-'+idx);
+  if(!drop||!drop.classList.contains('open')) return;
+  const items=[...drop.querySelectorAll('.ac-item[data-id]')];
+  const cur=drop.querySelector('.ac-item.active');
+  let curIdx=items.indexOf(cur);
+  if(e.key==='ArrowDown'){ e.preventDefault(); curIdx=Math.min(curIdx+1,items.length-1); }
+  else if(e.key==='ArrowUp'){ e.preventDefault(); curIdx=Math.max(curIdx-1,0); }
+  else if(e.key==='Enter'&&cur){ e.preventDefault(); selectPpItem(idx,cur.dataset.id); return; }
+  else if(e.key==='Escape'){ closePpDrop(idx); return; }
+  else return;
+  items.forEach(el=>el.classList.remove('active'));
+  if(items[curIdx]) items[curIdx].classList.add('active');
+}
+
 function onPpQty(idx,v){
   ppRows[idx].qty=parseFloat(v)||0;
   ppRows[idx].sub=ppRows[idx].qty*ppRows[idx].price;
