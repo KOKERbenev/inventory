@@ -337,9 +337,16 @@ select{cursor:pointer}
     <div class="card-title">新增進貨</div>
     <div class="form-grid">
       <div class="fg"><label>品項</label>
-        <select id="pu-item">
-          <option value="">請選擇品項</option>
-        </select>
+        <div class="ac-wrap">
+          <input class="ac-input" id="pu-ac" type="text" placeholder="輸入品名搜尋…"
+            autocomplete="off"
+            oninput="onPuSearch(this.value)"
+            onfocus="onPuSearch(this.value)"
+            onkeydown="onPuKey(event)"
+            onblur="setTimeout(()=>closePuDrop(),150)">
+          <div class="ac-dropdown" id="pu-drop"></div>
+          <input type="hidden" id="pu-item">
+        </div>
       </div>
       <div class="fg"><label>數量</label><input type="number" id="pu-qty" min="0.1" step="0.1" placeholder="0"></div>
       <div class="fg"><label>進貨日期</label><input type="date" id="pu-date"></div>
@@ -798,16 +805,47 @@ function renderPaperRows(){
   calcPaperTotal();
 }
 
+// 共用排序搜尋：開頭符合 > 中間符合，同類再依品名排序
+function searchItems(kw){
+  if(!kw) return [...db.items];
+  const k=kw.toLowerCase();
+  const starts=[], contains=[];
+  for(const i of db.items){
+    const n=i.name.toLowerCase();
+    const c=(i.code||'').toLowerCase();
+    if(n.startsWith(k)||(c&&c.startsWith(k))) starts.push(i);
+    else if(n.includes(k)||(c&&c.includes(k))) contains.push(i);
+  }
+  starts.sort((a,b)=>a.name.localeCompare(b.name,'zh'));
+  contains.sort((a,b)=>a.name.localeCompare(b.name,'zh'));
+  return [...starts,...contains].slice(0,10);
+}
+
+function buildDropHtml(items, kw, onClickFn){
+  if(!items.length) return '<div class="ac-item txt-muted">無符合品項</div>';
+  const safe=kw?kw.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'):'';
+  return items.map(i=>{
+    const hl=safe?i.name.replace(new RegExp(safe,'gi'),m=>`<mark>${m}</mark>`):i.name;
+    return `<div class="ac-item" data-id="${i.id}" data-name="${i.name}" onmousedown="${onClickFn}">${hl}</div>`;
+  }).join('');
+}
+
 function onPpSearch(idx, q){
   const drop=document.getElementById('pp-drop-'+idx);
-  const kw=q.trim().toLowerCase();
-  const results=db.items.filter(i=>!kw||i.name.toLowerCase().includes(kw)||
-    (i.code&&i.code.toLowerCase().includes(kw))).slice(0,10);
-  if(!results.length){ drop.innerHTML='<div class="ac-item txt-muted">無符合品項</div>'; drop.classList.add('open'); return; }
-  drop.innerHTML=results.map(i=>{
-    const hl=kw?i.name.replace(new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi'),m=>`<mark>${m}</mark>`):i.name;
-    return `<div class="ac-item" data-id="${i.id}" data-name="${i.name}" onmousedown="selectPpItem(${idx},'${i.id}')">${hl}</div>`;
-  }).join('');
+  const kw=q.trim();
+  const results=searchItems(kw);
+  drop.innerHTML=buildDropHtml(results, kw, `selectPpItem(${idx},'${`'+this.dataset.id+'`}')`);
+  // fix onclick binding — use data attribute approach
+  drop.innerHTML='';
+  if(!results.length){
+    drop.innerHTML='<div class="ac-item txt-muted">無符合品項</div>';
+  } else {
+    const safe=kw?kw.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'):'';
+    drop.innerHTML=results.map(i=>{
+      const hl=safe?i.name.replace(new RegExp(safe,'gi'),m=>`<mark>${m}</mark>`):i.name;
+      return `<div class="ac-item" data-id="${i.id}" data-name="${i.name}" onmousedown="selectPpItem(${idx},'${i.id}')">${hl}</div>`;
+    }).join('');
+  }
   drop.classList.add('open');
 }
 
@@ -946,11 +984,53 @@ function delPaper(id){
 // ─────────────────────────────────────────────
 // PAGE 4 – PURCHASE
 // ─────────────────────────────────────────────
-function fillPurchaseSelect(){
-  const sel=document.getElementById('pu-item');
-  const cur=sel.value;
-  sel.innerHTML='<option value="">請選擇品項</option>'+
-    db.items.map(i=>`<option value="${i.id}"${i.id===cur?' selected':''}>${i.name}</option>`).join('');
+function fillPurchaseSelect(){ /* 已改為搜尋框，無需下拉填充 */ }
+
+function onPuSearch(q){
+  const drop=document.getElementById('pu-drop');
+  const kw=q.trim();
+  const results=searchItems(kw);
+  if(!results.length){
+    drop.innerHTML='<div class="ac-item txt-muted">無符合品項</div>';
+  } else {
+    const safe=kw?kw.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'):'';
+    drop.innerHTML=results.map(i=>{
+      const hl=safe?i.name.replace(new RegExp(safe,'gi'),m=>`<mark>${m}</mark>`):i.name;
+      return `<div class="ac-item" data-id="${i.id}" data-name="${i.name}" onmousedown="selectPuItem('${i.id}')">${hl}</div>`;
+    }).join('');
+  }
+  drop.classList.add('open');
+}
+
+function selectPuItem(itemId){
+  const item=byId(itemId); if(!item) return;
+  document.getElementById('pu-item').value=itemId;
+  document.getElementById('pu-ac').value=item.name;
+  closePuDrop();
+}
+
+function closePuDrop(){
+  document.getElementById('pu-drop').classList.remove('open');
+  // 若輸入不完全符合任何品項，清除隱藏欄位
+  const ac=document.getElementById('pu-ac');
+  const val=ac.value.trim();
+  const match=db.items.find(i=>i.name===val);
+  if(!match) document.getElementById('pu-item').value='';
+}
+
+function onPuKey(e){
+  const drop=document.getElementById('pu-drop');
+  if(!drop||!drop.classList.contains('open')) return;
+  const items=[...drop.querySelectorAll('.ac-item[data-id]')];
+  const cur=drop.querySelector('.ac-item.active');
+  let curIdx=items.indexOf(cur);
+  if(e.key==='ArrowDown'){ e.preventDefault(); curIdx=Math.min(curIdx+1,items.length-1); }
+  else if(e.key==='ArrowUp'){ e.preventDefault(); curIdx=Math.max(curIdx-1,0); }
+  else if(e.key==='Enter'&&cur){ e.preventDefault(); selectPuItem(cur.dataset.id); return; }
+  else if(e.key==='Escape'){ closePuDrop(); return; }
+  else return;
+  items.forEach(el=>el.classList.remove('active'));
+  if(items[curIdx]) items[curIdx].classList.add('active');
 }
 
 function submitPurchase(){
@@ -959,7 +1039,7 @@ function submitPurchase(){
   const date=document.getElementById('pu-date').value;
   const supplier=document.getElementById('pu-supplier').value.trim();
   const note=document.getElementById('pu-note').value.trim();
-  if(!itemId){ alert('請選擇品項'); return; }
+  if(!itemId){ alert('請選擇品項（請從下拉清單選擇）'); return; }
   if(qty<=0){ alert('請輸入有效數量'); return; }
   if(!date){ alert('請輸入進貨日期'); return; }
   const item=byId(itemId); if(!item) return;
@@ -969,7 +1049,9 @@ function submitPurchase(){
   db.txs.unshift({id:uid(),ts:Date.now(),itemId:item.id,itemName:item.name,
     delta:qty,balance:item.stock,unit:item.unit,type:'進貨',note:`供應商:${supplier||'—'}${note?' '+note:''}`});
   save();
-  ['pu-item','pu-qty','pu-supplier','pu-note'].forEach(id=>{ document.getElementById(id).value=''; });
+  document.getElementById('pu-ac').value='';
+  document.getElementById('pu-item').value='';
+  ['pu-qty','pu-supplier','pu-note'].forEach(id=>{ document.getElementById(id).value=''; });
   document.getElementById('pu-date').value=today();
   renderPurchases();
   alert('進貨完成！');
