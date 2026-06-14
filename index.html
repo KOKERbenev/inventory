@@ -805,47 +805,16 @@ function renderPaperRows(){
   calcPaperTotal();
 }
 
-// 共用排序搜尋：開頭符合 > 中間符合，同類再依品名排序
-function searchItems(kw){
-  if(!kw) return [...db.items];
-  const k=kw.toLowerCase();
-  const starts=[], contains=[];
-  for(const i of db.items){
-    const n=i.name.toLowerCase();
-    const c=(i.code||'').toLowerCase();
-    if(n.startsWith(k)||(c&&c.startsWith(k))) starts.push(i);
-    else if(n.includes(k)||(c&&c.includes(k))) contains.push(i);
-  }
-  starts.sort((a,b)=>a.name.localeCompare(b.name,'zh'));
-  contains.sort((a,b)=>a.name.localeCompare(b.name,'zh'));
-  return [...starts,...contains].slice(0,10);
-}
-
-function buildDropHtml(items, kw, onClickFn){
-  if(!items.length) return '<div class="ac-item txt-muted">無符合品項</div>';
-  const safe=kw?kw.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'):'';
-  return items.map(i=>{
-    const hl=safe?i.name.replace(new RegExp(safe,'gi'),m=>`<mark>${m}</mark>`):i.name;
-    return `<div class="ac-item" data-id="${i.id}" data-name="${i.name}" onmousedown="${onClickFn}">${hl}</div>`;
-  }).join('');
-}
-
 function onPpSearch(idx, q){
   const drop=document.getElementById('pp-drop-'+idx);
-  const kw=q.trim();
-  const results=searchItems(kw);
-  drop.innerHTML=buildDropHtml(results, kw, `selectPpItem(${idx},'${`'+this.dataset.id+'`}')`);
-  // fix onclick binding — use data attribute approach
-  drop.innerHTML='';
-  if(!results.length){
-    drop.innerHTML='<div class="ac-item txt-muted">無符合品項</div>';
-  } else {
-    const safe=kw?kw.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'):'';
-    drop.innerHTML=results.map(i=>{
-      const hl=safe?i.name.replace(new RegExp(safe,'gi'),m=>`<mark>${m}</mark>`):i.name;
-      return `<div class="ac-item" data-id="${i.id}" data-name="${i.name}" onmousedown="selectPpItem(${idx},'${i.id}')">${hl}</div>`;
-    }).join('');
-  }
+  const kw=q.trim().toLowerCase();
+  const results=db.items.filter(i=>!kw||i.name.toLowerCase().includes(kw)||
+    (i.code&&i.code.toLowerCase().includes(kw))).slice(0,10);
+  if(!results.length){ drop.innerHTML='<div class="ac-item txt-muted">無符合品項</div>'; drop.classList.add('open'); return; }
+  drop.innerHTML=results.map(i=>{
+    const hl=kw?i.name.replace(new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi'),m=>`<mark>${m}</mark>`):i.name;
+    return `<div class="ac-item" data-id="${i.id}" data-name="${i.name}" onmousedown="selectPpItem(${idx},'${i.id}')">${hl}</div>`;
+  }).join('');
   drop.classList.add('open');
 }
 
