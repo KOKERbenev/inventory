@@ -805,11 +805,18 @@ function renderPaperRows(){
   calcPaperTotal();
 }
 
+// 共用搜尋：依「品項設定」頁面相同順序（db.items 原始順序）篩選，不額外排序
+function searchItems(kw){
+  const k=kw.trim().toLowerCase();
+  if(!k) return db.items.slice(0,10);
+  return db.items.filter(i=>i.name.toLowerCase().includes(k)||
+    (i.code&&i.code.toLowerCase().includes(k))).slice(0,10);
+}
+
 function onPpSearch(idx, q){
   const drop=document.getElementById('pp-drop-'+idx);
   const kw=q.trim().toLowerCase();
-  const results=db.items.filter(i=>!kw||i.name.toLowerCase().includes(kw)||
-    (i.code&&i.code.toLowerCase().includes(kw))).slice(0,10);
+  const results=searchItems(kw);
   if(!results.length){ drop.innerHTML='<div class="ac-item txt-muted">無符合品項</div>'; drop.classList.add('open'); return; }
   drop.innerHTML=results.map(i=>{
     const hl=kw?i.name.replace(new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi'),m=>`<mark>${m}</mark>`):i.name;
