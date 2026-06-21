@@ -1065,7 +1065,7 @@ function delPurchase(id){
 // ─────────────────────────────────────────────
 // PAGE 5 – CSV IMPORT
 // ─────────────────────────────────────────────
-let csvPending=null, csvFile='';
+let csvPending=null, csvFile='', csvVoidInfo=null;
 
 function onCsvDrop(e){
   e.preventDefault();
@@ -1099,13 +1099,23 @@ function parseCsvText(text){
   const keys=Object.keys(rows[0]);
   const nameKey=keys.find(k=>/品名|商品名/.test(k));
   const qtyKey =keys.find(k=>/數量|qty/i.test(k));
-  const voidKey=keys.find(k=>/作廢|void/i.test(k));
+  const voidKey=keys.find(k=>/作廢|void|開立/i.test(k));
 
   if(!nameKey||!qtyKey){ alert(`無法辨識 CSV 欄位。\n找到欄位：${keys.join('、')}\n需包含「商品品名」與「商品數量」欄位`); return; }
 
+  // 「開立/作廢」欄位只在每張發票的第一行標記，同張發票後續商品列該欄位是空白，
+  // 必須往下延續前一筆的開立/作廢狀態，不能單看本行是否空白來判斷。
   const agg={};
+  let currentVoid=false;
+  let voidedInvoiceCount=0, validInvoiceCount=0;
   for(const r of rows){
-    if(voidKey && r[voidKey] && r[voidKey].trim()!=='' && r[voidKey]!=='0') continue;
+    const status=voidKey?(r[voidKey]||'').trim():'';
+    if(status==='作廢'){ currentVoid=true; voidedInvoiceCount++; }
+    else if(status==='開立'){ currentVoid=false; validInvoiceCount++; }
+    // 空白則延續前一行狀態（同一張發票的其他商品列）
+
+    if(currentVoid) continue;
+
     const name=(r[nameKey]||'').trim();
     const qty=parseFloat(r[qtyKey])||0;
     if(!name||qty<=0) continue;
@@ -1116,6 +1126,7 @@ function parseCsvText(text){
     const item=db.items.find(i=>i.name===name)||db.items.find(i=>i.name.includes(name)||name.includes(i.name));
     return {name,qty,item:item||null};
   });
+  csvVoidInfo={voided:voidedInvoiceCount,valid:validInvoiceCount};
 
   renderCsvPreview();
 }
@@ -1123,6 +1134,19 @@ function parseCsvText(text){
 function renderCsvPreview(){
   document.getElementById('csv-fname').textContent=csvFile;
   document.getElementById('csv-preview-wrap').style.display='block';
+  let infoHtml='';
+  if(csvVoidInfo){
+    infoHtml=`<div class="txt-sm txt-muted mb-16">已偵測 ${csvVoidInfo.valid} 張開立發票、${csvVoidInfo.voided} 張作廢發票（作廢已自動排除不扣庫）</div>`;
+  }
+  document.getElementById('csv-fname').insertAdjacentHTML('afterend', '');
+  const wrap=document.getElementById('csv-preview-wrap');
+  let infoEl=document.getElementById('csv-void-info');
+  if(!infoEl){
+    infoEl=document.createElement('div');
+    infoEl.id='csv-void-info';
+    wrap.insertBefore(infoEl, wrap.firstChild.nextSibling);
+  }
+  infoEl.innerHTML=infoHtml;
   document.getElementById('csv-prev-body').innerHTML=csvPending.map(r=>`<tr>
     <td>${r.name}</td>
     <td>${fmtNum(r.qty)}</td>
@@ -1154,7 +1178,7 @@ function confirmCsv(){
 }
 
 function cancelCsv(){
-  csvPending=null; csvFile='';
+  csvPending=null; csvFile=''; csvVoidInfo=null;
   document.getElementById('csv-preview-wrap').style.display='none';
   document.getElementById('csv-file').value='';
 }
